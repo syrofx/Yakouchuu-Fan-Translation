@@ -1,21 +1,3 @@
-# this module exclusively handles the information inside a rom header for the SNES, given a known offset it gives you thinks like:
-# Internal ROM title
-# ROM size
-# SRAM size
-# Cartridge type.
-# ROM version.
-# Checksum.
-# Complement checksum.
-# Reset vector.
-
-# this module does not search for a header it only interprets a header give a known offset or return an error if no header can be interpreted from there.
-
-
-# tl;dr 
-# 1.-read corresponding bytes to the header
-# 2.- Present that in a legible way
-
-## read about this in python doc
 from dataclasses import dataclass
 from enum import Enum, IntEnum
 
@@ -57,6 +39,70 @@ class CustomCoprocessor(Enum):
     CX4         = 3,
     NA          = 4
 
+class Region(Enum):
+    JAPAN = 0x00,
+    NORTH_AMERICA = 0x01,
+    EUROPE = 0x02,
+    SCANDINAVIA = 0x03,
+    FINLAND = 0x04,
+    DENMARK = 0x05,
+    EUROPE_FRENCH_ONLY = 0x06,
+    DUTCH = 0x07,
+    SPANISH = 0x08,
+    GERMAN = 0x08,
+    ITALIAN = 0x0A,
+    CHINESE = 0x0B,
+    INDONESIA = 0x0C,
+    SOUTH_KOREA = 0x0D,
+    COMMON = 0x0E,
+    CANADA = 0x0F,
+    BRAZIL = 0x10,
+    NINTENDO_GATEWAY_SYSTEM = 0x11, # to do: handle this special case by checking $FFB2 ascii game code
+    AUSTRALIA = 0x12,
+    OTHER_X = 0x13,
+    OTHER_Y = 0x14,
+    OTHER_Z = 0x15
+
+
+REGION_NAMES = {
+    Region.JAPAN : "Japan",
+    Region.NORTH_AMERICA : "North America",
+    Region.EUROPE : "Europe",
+    Region.SCANDINAVIA : "Scandinavia",
+    Region.FINLAND : "Finland",
+    Region.DENMARK : "Denmark",
+    Region.EUROPE_FRENCH_ONLY : "France",
+    Region.DUTCH : "Dutchland",
+    Region.SPANISH : "Spain",
+    Region.GERMAN : "Germany",
+    Region.ITALIAN : "Italy",
+    Region.CHINESE : "Chine",
+    Region.INDONESIA : "Indonesia",
+    Region.SOUTH_KOREA : "South Korea",
+    Region.COMMON : "Common",
+    Region.CANADA : "Canada",
+    Region.BRAZIL : "Brazil",
+    Region.NINTENDO_GATEWAY_SYSTEM : "Nintendo Gateway System",
+    Region.AUSTRALIA : "Australia",
+    Region.OTHER_X : "Other variation x",
+    Region.OTHER_Y : "Other variation y",
+    Region.OTHER_Z : "Other variation z"
+}
+
+MAP_MODE_NAMES = {
+    MapModes.LO_ROM: "LoROM",
+    MapModes.HI_ROM: "HiROM",
+    MapModes.S_DD1: "S-DD1",
+    MapModes.SA_1: "SA-1",
+    MapModes.EX_HI_ROM: "ExHiROM",
+    MapModes.SPC_7110: "SPC7110"
+}
+
+SPEED_NAMES = {
+    Speed.SLOW: "Low",
+    Speed.FAST: "Fast"
+}
+
 CHIPSET_NAMES = {
     Chipset.ROM_ONLY: "ROM only",
     Chipset.ROM_RAM: "ROM + RAM",
@@ -85,6 +131,8 @@ CUSTOM_COPROCESSOR_NAMES = {
     CustomCoprocessor.CX4: "CX4",
     CustomCoprocessor.NA: "NA",
 }
+
+
 
 @dataclass
 class RomHeader:
@@ -117,59 +165,29 @@ def read_header(rom_data: bytes, offset: int) -> RomHeader:
 
     return header_data
 
-def get_info_text(header: RomHeader) -> None:
-    # make this 3 to follow the same pattern as chipset, rom_size, ram_size
-    title = header.title.decode("shift_jis", errors="replace").rstrip("\x00 ")
-    map_mode = header.map_mode
-    mode, speed = parse_map_mode(map_mode)
+def print_info_text(header: RomHeader) -> None:
+    title          = get_title_description(header.title)
+    map_mode_speed = get_map_mode_speed_description(header.map_mode)
+    chipset        = get_cartridge_description(header.chipset)
+    rom_size       = get_rom_ram_size_description(header.rom_size)
+    ram_size       = get_rom_ram_size_description(header.ram_size)
+    region         = get_region_description(header.country_code)
 
 
-    chipset  = get_cartridge_description(header.chipset)
-    rom_size = get_rom_ram_size_description(header.rom_size)
-    ram_size = get_rom_ram_size_description(header.ram_size)
-
-    print(f"ROM Title: {title}")
-    print(f"Map mode: {mode.name}")
-    print(f"Speed: {speed.name}")
+    print(f"{title}")
+    print(f"{map_mode_speed}")
     print(f"{chipset}")
     print(f"{rom_size}")
     print(f"{ram_size}")
+    print(f"{region}")
 
-def parse_map_mode(raw_map_mode):
-    map_mode_mask = 0x0F
-    speed_mask =  1 << 6
+def get_title_description(value: int) -> str:
+    title_decoded = value.decode("shift_jis", errors="replace").rstrip("\x00 ")
+    return f"ROM Title: {title_decoded}"
 
-    selected_mode = 0x0
-    speed_mode    = 0x0
-
-    if (raw_map_mode & map_mode_mask == 0x0):
-        selected_mode = MapModes.LO_ROM
-    if (raw_map_mode & map_mode_mask == 0x1):
-        selected_mode = MapModes.HI_ROM
-    if (raw_map_mode & map_mode_mask == 0x2):
-        selected_mode = MapModes.S_DD1
-    if (raw_map_mode & map_mode_mask == 0x3):
-        selected_mode = MapModes.SA_1
-    if (raw_map_mode & map_mode_mask == 0x5):
-        selected_mode = MapModes.EX_HI_ROM
-    if (raw_map_mode & map_mode_mask == 0xA):
-        selected_mode = MapModes.SPC_7110
-
-    if (raw_map_mode & speed_mask == 0):
-        speed_mode = Speed.SLOW
-    if (raw_map_mode & speed_mask == 1):
-        speed_mode = Speed.FAST
-
-    return selected_mode, speed_mode
-
-def decode_cartridge_type(value: int):
-    chipset = (value >> 4) & 0x0F
-    coprocessor = value & 0x0F
-
-    return Chipset(chipset), ChipsetCoprocessor(coprocessor)
-
-def decode_custom_coprocessor():
-    pass
+def get_map_mode_speed_description(mode: MapModes) -> str:
+    decoded_map_mode, decoded_speed = decode_map_mode(mode)
+    return f"Map mode: {MAP_MODE_NAMES[decoded_map_mode]} \nSpeed: {SPEED_NAMES[decoded_speed]}"
 
 def get_cartridge_description(value: int) -> str:
         if (value == 0x00):
@@ -189,6 +207,86 @@ def get_rom_ram_size_description(value: int) -> str:
     size = 1 << value
     return f"Size: {size}Kb"
 
-def get_country_code_description(value: int) -> str:
-    # todo implement this, very similiar to the chipset one, using a table for names and an enum
+def get_region_description(value: int) -> str:
+    decoded_country_code = decode_country_code(value)
+    return f"Region: {REGION_NAMES[decoded_country_code]}"
+
+def decode_map_mode(value: int):
+    map_mode_mask = 0x0F
+    speed_mask =  1 << 6
+
+    selected_mode = 0x0
+    speed_mode    = 0x0
+
+    if (value & map_mode_mask == 0x0):
+        selected_mode = MapModes.LO_ROM
+    if (value & map_mode_mask == 0x1):
+        selected_mode = MapModes.HI_ROM
+    if (value & map_mode_mask == 0x2):
+        selected_mode = MapModes.S_DD1
+    if (value & map_mode_mask == 0x3):
+        selected_mode = MapModes.SA_1
+    if (value & map_mode_mask == 0x5):
+        selected_mode = MapModes.EX_HI_ROM
+    if (value & map_mode_mask == 0xA):
+        selected_mode = MapModes.SPC_7110
+
+    if (value & speed_mask == 0):
+        speed_mode = Speed.SLOW
+    if (value & speed_mask == 1):
+        speed_mode = Speed.FAST
+
+    return selected_mode, speed_mode
+
+def decode_cartridge_type(value: int):
+    chipset = (value >> 4) & 0x0F
+    coprocessor = value & 0x0F
+
+    return Chipset(chipset), ChipsetCoprocessor(coprocessor)
+
+def decode_custom_coprocessor(value: int):
     pass
+
+def decode_country_code(value: int):
+    if (value == 0x00):
+        return Region.JAPAN
+    if (value == 0x01):
+        return Region.NORTH_AMERICA
+    if (value == 0x02):
+        return Region.EUROPE
+    if (value == 0x03):
+        return Region.SCANDINAVIA
+    if (value == 0x04):
+        return Region.FINLAND
+    if (value == 0x05):
+        return Region.DENMARK
+    if (value == 0x06):
+        return Region.EUROPE_FRENCH_ONLY
+    if (value == 0x07):
+        return Region.DUTCH
+    if (value == 0x08):
+        return Region.SPANISH
+    if (value == 0x09):
+        return Region.GERMAN
+    if (value == 0x0A):
+        return Region.ITALIAN
+    if (value == 0x0B):
+        return Region.CHINESE
+    if (value == 0x0C):
+        return Region.INDONESIA
+    if (value == 0x0D):
+        return Region.SOUTH_KOREA
+    if (value == 0x0E):
+        return Region.COMMON
+    if (value == 0x0F):
+        return Region.CANADA
+    if (value == 0x10):
+        return Region.BRAZIL # to do: handle special case for Nintendo Gateway System
+    if (value == 0x11):
+        return Region.AUSTRALIA
+    if (value == 0x12):
+        return Region.OTHER_X
+    if (value == 0x13):
+        return Region.OTHER_Y
+    if (value == 0x14):
+        return Region.OTHER_Z
