@@ -1,5 +1,10 @@
+import sys
 from dataclasses import dataclass
 from enum import Enum, IntEnum
+
+class Memory(Enum):
+    ROM = 0,
+    RAM = 1
 
 class MapModes(Enum):
     LO_ROM    = 0,
@@ -62,7 +67,6 @@ class Region(Enum):
     OTHER_X = 0x13,
     OTHER_Y = 0x14,
     OTHER_Z = 0x15
-
 
 REGION_NAMES = {
     Region.JAPAN : "Japan",
@@ -132,8 +136,6 @@ CUSTOM_COPROCESSOR_NAMES = {
     CustomCoprocessor.NA: "NA",
 }
 
-
-
 @dataclass
 class RomHeader:
     title: int
@@ -158,28 +160,38 @@ def read_header(rom_data: bytes, offset: int) -> RomHeader:
         country_code        = rom_data[offset + 0x19],
         developer_id        = rom_data[offset + 0x1A],
         rom_version         = rom_data[offset + 0x1B],
-        complement_checksum = rom_data[offset + 0x1C : offset + 0x1D],
-        checksum            = rom_data[offset + 0x1E : offset + 0x1F],
+        complement_checksum = rom_data[offset + 0x1C : offset + 0x1E],
+        checksum            = rom_data[offset + 0x1E : offset + 0x20],
         interrupt_vectors   = rom_data[offset + 0x20]
     )
 
     return header_data
 
 def print_info_text(header: RomHeader) -> None:
-    title          = get_title_description(header.title)
-    map_mode_speed = get_map_mode_speed_description(header.map_mode)
-    chipset        = get_cartridge_description(header.chipset)
-    rom_size       = get_rom_ram_size_description(header.rom_size)
-    ram_size       = get_rom_ram_size_description(header.ram_size)
-    region         = get_region_description(header.country_code)
+    title               = get_title_description(header.title)
+    map_mode_speed      = get_map_mode_speed_description(header.map_mode)
+    chipset             = get_cartridge_description(header.chipset)
+    rom_size            = get_rom_ram_size_description(header.rom_size, Memory.ROM)
+    ram_size            = get_rom_ram_size_description(header.ram_size, Memory.RAM)
+    region              = get_region_description(header.country_code)
+    developer_id        = get_developer_id_description(header.developer_id)
+    rom_version         = get_rom_version_description(header.rom_version)
+    checksum            = get_checksum_description(header.checksum, False)
+    checksum_complement = get_checksum_description(header.complement_checksum, True)
+    checksum_check      = get_checksum_check_description(int.from_bytes(header.checksum), int.from_bytes(header.complement_checksum))
 
-
-    print(f"{title}")
-    print(f"{map_mode_speed}")
-    print(f"{chipset}")
-    print(f"{rom_size}")
-    print(f"{ram_size}")
-    print(f"{region}")
+    print(f"╔═════════ROM analysis═════════")
+    print(f"║{title}")
+    print(f"║{map_mode_speed}")
+    print(f"║{chipset}")
+    print(f"║{rom_size}")
+    print(f"║{ram_size}")
+    print(f"║{region}")
+    print(f"║{developer_id}")
+    print(f"║{rom_version}")
+    print(f"║{checksum}")
+    print(f"║{checksum_complement}")
+    print(f"║{checksum_check}")
 
 def get_title_description(value: int) -> str:
     title_decoded = value.decode("shift_jis", errors="replace").rstrip("\x00 ")
@@ -187,7 +199,7 @@ def get_title_description(value: int) -> str:
 
 def get_map_mode_speed_description(mode: MapModes) -> str:
     decoded_map_mode, decoded_speed = decode_map_mode(mode)
-    return f"Map mode: {MAP_MODE_NAMES[decoded_map_mode]} \nSpeed: {SPEED_NAMES[decoded_speed]}"
+    return f"Map mode: {MAP_MODE_NAMES[decoded_map_mode]} \n║Speed: {SPEED_NAMES[decoded_speed]}"
 
 def get_cartridge_description(value: int) -> str:
         if (value == 0x00):
@@ -203,13 +215,40 @@ def get_cartridge_description(value: int) -> str:
                 print("Not yet supported")
             return (f"Chipset: {CHIPSET_NAMES[chipset]}, Coprocessor: {COPROCESSOR_NAMES[chipset_coprocessor]}")
 
-def get_rom_ram_size_description(value: int) -> str:
+def get_rom_ram_size_description(value: int, mem_flag: Memory) -> str:
     size = 1 << value
-    return f"Size: {size}Kb"
+    if (mem_flag == Memory.ROM):
+        return f"ROM size: {size}Kb"
+    if (mem_flag == Memory.RAM):
+        return f"RAM size: {size}Kb"
 
 def get_region_description(value: int) -> str:
     decoded_country_code = decode_country_code(value)
     return f"Region: {REGION_NAMES[decoded_country_code]}"
+
+def get_developer_id_description(value: int) -> str:
+    return f"Developer id: \n║\tHex: {hex(value)} \n║\tDec: {value}"
+
+def get_rom_version_description(value: int) -> str:
+    if (value == 0x0):
+        return f"ROM version: first"
+    else:
+        return f"ROM version: not first"
+
+def get_checksum_description(value: bytes, is_complement) -> str:
+    value = int.from_bytes(value, byteorder='big')
+
+    if (is_complement):
+        return f"Checksum complement: \n║\tHex: {hex(value)} \n║\tDec: {value}"
+    else:
+        return f"Checksum: \n║\tHex: {hex(value)} \n║\tDec:{value}"
+
+def get_checksum_check_description(checksum: int, checksum_complement: int) -> str:
+    result = checksum ^ checksum_complement
+    if (result == 0xFFFF):
+        return f"Checksum validation successful!"
+    else:
+        return f"Checksum validation failure!"
 
 def decode_map_mode(value: int):
     map_mode_mask = 0x0F
